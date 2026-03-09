@@ -1,4 +1,4 @@
-# GestãoPro - Software de Gestão Comercial
+# Sales-Rotina - Software de Gestão Comercial
 
 ## Overview
 Sales management software inspired by Cegid Business, designed for Portuguese legislation compliance. Features modules for sales, inventory, purchases, current accounts (customers/suppliers), banking, exploration maps, and SAF-T export.

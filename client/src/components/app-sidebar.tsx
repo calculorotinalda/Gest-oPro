@@ -1,6 +1,6 @@
 import { useLocation, Link } from "wouter";
 import {
-  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2, Landmark, BarChart3, Download, Receipt
+  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2, Landmark, BarChart3, Download, Receipt, TrendingUp
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -48,10 +48,10 @@ export function AppSidebar() {
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <FileText className="w-4 h-4 text-primary-foreground" />
+            <TrendingUp className="w-4 h-4 text-primary-foreground" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold leading-tight" data-testid="text-app-name">GestãoPro</h2>
+            <h2 className="text-sm font-semibold leading-tight" data-testid="text-app-name">Sales-Rotina</h2>
             <p className="text-xs text-muted-foreground">Software de Gestão</p>
           </div>
         </div>
@@ -81,7 +81,7 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <p className="text-xs text-muted-foreground text-center">GestãoPro v1.0</p>
+        <p className="text-xs text-muted-foreground text-center">Sales-Rotina v1.0</p>
         <p className="text-xs text-muted-foreground text-center">Legislação Portuguesa</p>
       </SidebarFooter>
     </Sidebar>

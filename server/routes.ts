@@ -449,7 +449,7 @@ function generateSaftSales(company: any, customers: any[], invoiceData: any[]): 
     <TaxEntity>Global</TaxEntity>
     <ProductCompanyTaxID>000000000</ProductCompanyTaxID>
     <SoftwareCertificateNumber>0</SoftwareCertificateNumber>
-    <ProductID>GestaoPro/1.0</ProductID>
+    <ProductID>SalesRotina/1.0</ProductID>
     <ProductVersion>1.0</ProductVersion>
   </Header>
   <MasterFiles>`;

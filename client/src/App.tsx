@@ -50,7 +50,7 @@ export default function App() {
             <div className="flex flex-col flex-1 min-w-0">
               <header className="flex items-center gap-2 p-2 border-b h-12 shrink-0">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <span className="text-sm font-medium text-muted-foreground">GestãoPro - Software de Gestão Comercial</span>
+                <span className="text-sm font-medium text-muted-foreground">Sales-Rotina - Software de Gestão Comercial</span>
               </header>
               <main className="flex-1 overflow-auto bg-background">
                 <Router />
