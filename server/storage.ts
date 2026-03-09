@@ -55,7 +55,7 @@ export interface IStorage {
   getPurchaseItems(purchaseId: number): Promise<PurchaseItem[]>;
   createPurchaseItem(data: InsertPurchaseItem): Promise<PurchaseItem>;
   deletePurchaseItems(purchaseId: number): Promise<void>;
-  getNextPurchaseNumber(): Promise<string>;
+  getNextPurchaseNumber(type: string): Promise<string>;
 
   getBankAccounts(): Promise<BankAccount[]>;
   getBankAccount(id: number): Promise<BankAccount | undefined>;
@@ -66,7 +66,7 @@ export interface IStorage {
 
   getReceipts(): Promise<Receipt[]>;
   createReceipt(data: InsertReceipt): Promise<Receipt>;
-  getNextReceiptNumber(): Promise<string>;
+  getNextReceiptNumber(type: string): Promise<string>;
 
   getDashboardStats(): Promise<{
     revenue: number;
@@ -242,10 +242,14 @@ export class DatabaseStorage implements IStorage {
     await db.delete(purchaseItems).where(eq(purchaseItems.purchaseId, purchaseId));
   }
 
-  async getNextPurchaseNumber(): Promise<string> {
-    const result = await db.select({ count: sql<number>`count(*)` }).from(purchases);
+  async getNextPurchaseNumber(type: string): Promise<string> {
+    const prefixMap: Record<string, string> = {
+      VFT: "VFT", VFR: "VFR", VNC: "VNC", VND: "VND"
+    };
+    const prefix = prefixMap[type] || "VFT";
+    const result = await db.select({ count: sql<number>`count(*)` }).from(purchases).where(eq(purchases.type, type));
     const nextNum = (Number(result[0].count) || 0) + 1;
-    return `CP 2026/${nextNum}`;
+    return `${prefix} 2026/${nextNum}`;
   }
 
   async getBankAccounts(): Promise<BankAccount[]> {
@@ -290,10 +294,14 @@ export class DatabaseStorage implements IStorage {
     return receipt;
   }
 
-  async getNextReceiptNumber(): Promise<string> {
-    const result = await db.select({ count: sql<number>`count(*)` }).from(receipts);
+  async getNextReceiptNumber(type: string): Promise<string> {
+    const prefixMap: Record<string, string> = {
+      RC: "RC", NP: "NP", RG: "RG"
+    };
+    const prefix = prefixMap[type] || "RC";
+    const result = await db.select({ count: sql<number>`count(*)` }).from(receipts).where(eq(receipts.type, type));
     const nextNum = (Number(result[0].count) || 0) + 1;
-    return `RC 2026/${nextNum}`;
+    return `${prefix} 2026/${nextNum}`;
   }
 
   async getDashboardStats() {

@@ -1,6 +1,6 @@
 import { useLocation, Link } from "wouter";
 import {
-  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2, Landmark, BarChart3, Download
+  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2, Landmark, BarChart3, Download, Receipt
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
@@ -27,6 +27,7 @@ const navGroups = [
       { title: "Inventário", url: "/inventario", icon: Package },
       { title: "Clientes", url: "/clientes", icon: Users },
       { title: "Fornecedores", url: "/fornecedores", icon: Building2 },
+      { title: "Contas Correntes", url: "/contas-correntes", icon: Receipt },
       { title: "Bancos", url: "/bancos", icon: Landmark },
     ],
   },

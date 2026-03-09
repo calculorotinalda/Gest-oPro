@@ -61,24 +61,36 @@ export default function Vendas() {
             <h1 className="text-2xl font-bold" data-testid="text-page-title">Vendas</h1>
             <p className="text-sm text-muted-foreground">Documentos de venda</p>
           </div>
-          <Dialog open={showForm} onOpenChange={setShowForm}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-new-invoice" onClick={() => { setFormType("FT"); setShowForm(true); }}>
-                <Plus className="w-4 h-4 mr-2" />
-                Nova Fatura
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Nova {docTypes.find(d => d.value === formType)?.label}</DialogTitle>
-              </DialogHeader>
-              <InvoiceForm type={formType} onSuccess={() => {
-                setShowForm(false);
-                queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-                toast({ title: "Documento criado com sucesso" });
-              }} />
-            </DialogContent>
-          </Dialog>
+          <div className="flex items-center gap-2">
+            <Select value={formType} onValueChange={setFormType}>
+              <SelectTrigger className="w-[200px]" data-testid="select-new-doc-type">
+                <SelectValue placeholder="Tipo de documento" />
+              </SelectTrigger>
+              <SelectContent>
+                {docTypes.filter(d => d.value !== "all").map((dt) => (
+                  <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Dialog open={showForm} onOpenChange={setShowForm}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-new-invoice" onClick={() => setShowForm(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Novo Documento
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Nova {docTypes.find(d => d.value === formType)?.label}</DialogTitle>
+                </DialogHeader>
+                <InvoiceForm type={formType} onSuccess={() => {
+                  setShowForm(false);
+                  queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                  toast({ title: "Documento criado com sucesso" });
+                }} />
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 mb-4 flex-wrap">

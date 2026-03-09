@@ -13,22 +13,23 @@ Sales management software inspired by Cegid Business, designed for Portuguese le
 ```
 client/src/
   pages/
-    dashboard.tsx     - Main dashboard with KPIs and charts
-    vendas.tsx        - Sales documents (invoices, credit/debit notes)
-    compras.tsx       - Purchase documents
-    inventario.tsx    - Product inventory management
-    clientes.tsx      - Customer current accounts
-    fornecedores.tsx  - Supplier current accounts
-    bancos.tsx        - Bank account management
-    mapas.tsx         - Exploration maps (analytics/reports)
-    saft.tsx          - SAF-T export for Portuguese legislation
+    dashboard.tsx          - Main dashboard with KPIs and charts
+    vendas.tsx             - Sales documents (FT, FS, FR, NC, ND)
+    compras.tsx            - Purchase documents (VFT, VFR, VNC, VND)
+    inventario.tsx         - Product inventory management
+    clientes.tsx           - Customer management
+    fornecedores.tsx       - Supplier management
+    contas-correntes.tsx   - Current accounts (RC, NP, RG)
+    bancos.tsx             - Bank account management
+    mapas.tsx              - Exploration maps (analytics/reports)
+    saft.tsx               - SAF-T export for Portuguese legislation
   components/
-    app-sidebar.tsx   - Navigation sidebar
-    invoice-form.tsx  - Invoice creation form
-    invoice-detail.tsx - Invoice detail view
+    app-sidebar.tsx        - Navigation sidebar
+    invoice-form.tsx       - Invoice creation form
+    invoice-detail.tsx     - Invoice detail view
   lib/
-    format.ts         - Currency/date/number formatting (pt-PT)
-    queryClient.ts    - TanStack Query client config
+    format.ts              - Currency/date/number formatting (pt-PT)
+    queryClient.ts         - TanStack Query client config
 
 server/
   db.ts              - Database connection (Drizzle + pg)
@@ -43,25 +44,45 @@ shared/
 ## Database Tables
 - companies, customers, suppliers, products
 - invoices, invoice_items
-- purchases, purchase_items
+- purchases (with type: VFT, VFR, VNC, VND), purchase_items
 - bank_accounts, bank_transactions
-- receipts
+- receipts (with type: RC, NP, RG; supports customer and supplier links)
+
+## Document Types
+### Sales (Vendas)
+- FT: Fatura
+- FS: Fatura Simplificada
+- FR: Fatura-Recibo (auto-paid, no pending)
+- NC: Nota de Crédito (reverses balance, increases stock)
+- ND: Nota de Débito
+
+### Purchases (Compras)
+- VFT: V/Fatura (increases stock, creates supplier debt)
+- VFR: V/Fatura-Recibo (increases stock, auto-paid, no supplier debt)
+- VNC: V/Nota de Crédito (decreases stock, reduces supplier balance)
+- VND: V/Nota de Débito
+
+### Current Accounts (Contas Correntes)
+- RC: Recibo (customer receipt, reduces customer balance)
+- NP: Nota de Pagamento (supplier payment, reduces supplier balance)
+- RG: Regularização (can be for customer or supplier, user selects entity)
 
 ## Key Features
 - Dashboard with revenue/expenses/profit charts
-- Sales documents (FT, FS, FR, NC, ND)
-- Purchase management with stock updates
-- Customer & supplier current accounts
+- Sales documents with document type selection
+- Purchase management with document type selection and stock updates
+- Customer & supplier management
+- Current accounts with receipts, payment notes, and regularizations
 - Bank account management with transactions
 - Exploration maps (analytics)
 - SAF-T export (sales + inventory) per Portuguese law
 
 ## API Endpoints
 All prefixed with `/api/`:
-- GET/POST customers, suppliers, products
-- GET/POST invoices (with items)
-- GET/POST purchases (with items)
+- GET/POST/PATCH/DELETE customers, suppliers, products
+- GET/POST invoices (with items, type-based numbering)
+- GET/POST purchases (with items, type-based numbering: VFT, VFR, VNC, VND)
 - GET/POST bank-accounts, bank-transactions
-- GET/POST receipts
+- GET/POST receipts (type-based: RC, NP, RG)
 - GET dashboard (stats)
 - GET saft/sales, saft/inventory (XML download)

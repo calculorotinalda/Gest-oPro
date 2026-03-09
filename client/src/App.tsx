@@ -15,6 +15,7 @@ import Fornecedores from "@/pages/fornecedores";
 import Bancos from "@/pages/bancos";
 import Mapas from "@/pages/mapas";
 import Saft from "@/pages/saft";
+import ContasCorrente from "@/pages/contas-correntes";
 
 function Router() {
   return (
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/inventario" component={Inventario} />
       <Route path="/clientes" component={Clientes} />
       <Route path="/fornecedores" component={Fornecedores} />
+      <Route path="/contas-correntes" component={ContasCorrente} />
       <Route path="/bancos" component={Bancos} />
       <Route path="/mapas" component={Mapas} />
       <Route path="/saft" component={Saft} />

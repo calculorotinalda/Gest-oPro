@@ -91,6 +91,7 @@ export const invoiceItems = pgTable("invoice_items", {
 
 export const purchases = pgTable("purchases", {
   id: serial("id").primaryKey(),
+  type: text("type").notNull().default("VFT"),
   number: text("number").notNull(),
   date: timestamp("date").notNull().defaultNow(),
   supplierId: integer("supplier_id").references(() => suppliers.id),
@@ -138,12 +139,16 @@ export const bankTransactions = pgTable("bank_transactions", {
 
 export const receipts = pgTable("receipts", {
   id: serial("id").primaryKey(),
+  type: text("type").notNull().default("RC"),
   number: text("number").notNull(),
   date: timestamp("date").notNull().defaultNow(),
   customerId: integer("customer_id").references(() => customers.id),
   customerName: text("customer_name"),
+  supplierId: integer("supplier_id").references(() => suppliers.id),
+  supplierName: text("supplier_name"),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   invoiceId: integer("invoice_id").references(() => invoices.id),
+  purchaseId: integer("purchase_id").references(() => purchases.id),
   bankAccountId: integer("bank_account_id").references(() => bankAccounts.id),
   paymentMethod: text("payment_method").default("transferencia"),
   notes: text("notes"),

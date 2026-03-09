@@ -189,19 +189,40 @@ export async function registerRoutes(
 
   app.post("/api/purchases", async (req, res) => {
     const { items, ...purchaseData } = req.body;
-    const number = await storage.getNextPurchaseNumber();
-    const purchase = await storage.createPurchase({ ...purchaseData, number, pending: purchaseData.total });
+    const purchaseType = purchaseData.type || "VFT";
+    const number = await storage.getNextPurchaseNumber(purchaseType);
+
+    const isCreditNote = purchaseType === "VNC";
+    const isReceiptPurchase = purchaseType === "VFR";
+
+    const pending = isReceiptPurchase ? "0" : purchaseData.total;
+    const status = isReceiptPurchase ? "paga" : "registada";
+
+    const purchase = await storage.createPurchase({ ...purchaseData, type: purchaseType, number, pending, status });
 
     if (items && Array.isArray(items)) {
       for (const item of items) {
         await storage.createPurchaseItem({ ...item, purchaseId: purchase.id });
       }
-      for (const item of items) {
-        if (item.productId) {
-          const product = await storage.getProduct(item.productId);
-          if (product) {
-            const newStock = Number(product.stock) + Number(item.quantity);
-            await storage.updateProduct(item.productId, { stock: String(newStock) });
+      if (purchaseType === "VFT" || purchaseType === "VFR") {
+        for (const item of items) {
+          if (item.productId) {
+            const product = await storage.getProduct(item.productId);
+            if (product) {
+              const newStock = Number(product.stock) + Number(item.quantity);
+              await storage.updateProduct(item.productId, { stock: String(newStock) });
+            }
+          }
+        }
+      }
+      if (isCreditNote) {
+        for (const item of items) {
+          if (item.productId) {
+            const product = await storage.getProduct(item.productId);
+            if (product) {
+              const newStock = Number(product.stock) - Number(item.quantity);
+              await storage.updateProduct(item.productId, { stock: String(newStock) });
+            }
           }
         }
       }
@@ -209,8 +230,18 @@ export async function registerRoutes(
 
     const supplier = purchase.supplierId ? await storage.getSupplier(purchase.supplierId) : null;
     if (supplier) {
-      const newBalance = Number(supplier.balance) + Number(purchase.total);
-      await storage.updateSupplier(supplier.id, { balance: String(newBalance) });
+      let balanceChange = 0;
+      if (isCreditNote) {
+        balanceChange = -Number(purchase.total);
+      } else if (isReceiptPurchase) {
+        balanceChange = 0;
+      } else {
+        balanceChange = Number(purchase.total);
+      }
+      if (balanceChange !== 0) {
+        const newBalance = Number(supplier.balance) + balanceChange;
+        await storage.updateSupplier(supplier.id, { balance: String(newBalance) });
+      }
     }
 
     res.json(purchase);
@@ -266,42 +297,74 @@ export async function registerRoutes(
   });
 
   app.post("/api/receipts", async (req, res) => {
-    const number = await storage.getNextReceiptNumber();
-    const receipt = await storage.createReceipt({ ...req.body, number });
+    const receiptType = req.body.type || "RC";
+    const number = await storage.getNextReceiptNumber(receiptType);
+    const receipt = await storage.createReceipt({ ...req.body, type: receiptType, number });
 
-    if (req.body.invoiceId) {
-      const invoice = await storage.getInvoice(req.body.invoiceId);
-      if (invoice) {
-        const newPending = Number(invoice.pending) - Number(req.body.amount);
-        await storage.updateInvoice(invoice.id, {
-          pending: String(Math.max(0, newPending)),
-          status: newPending <= 0 ? "paga" : "emitida",
-        });
+    const typeLabels: Record<string, string> = { RC: "Recibo", NP: "Nota de Pagamento", RG: "Regularização" };
+    const label = typeLabels[receiptType] || "Recibo";
+
+    if (receiptType === "RC" || receiptType === "RG") {
+      if (req.body.invoiceId) {
+        const invoice = await storage.getInvoice(req.body.invoiceId);
+        if (invoice) {
+          const newPending = Number(invoice.pending) - Number(req.body.amount);
+          await storage.updateInvoice(invoice.id, {
+            pending: String(Math.max(0, newPending)),
+            status: newPending <= 0 ? "paga" : "emitida",
+          });
+        }
+      }
+
+      if (req.body.customerId) {
+        const customer = await storage.getCustomer(req.body.customerId);
+        if (customer) {
+          const newBalance = Number(customer.balance) - Number(req.body.amount);
+          await storage.updateCustomer(customer.id, { balance: String(newBalance) });
+        }
       }
     }
 
-    if (req.body.customerId) {
-      const customer = await storage.getCustomer(req.body.customerId);
-      if (customer) {
-        const newBalance = Number(customer.balance) - Number(req.body.amount);
-        await storage.updateCustomer(customer.id, { balance: String(newBalance) });
+    if (receiptType === "NP" || receiptType === "RG") {
+      if (req.body.purchaseId) {
+        const purchase = await storage.getPurchase(req.body.purchaseId);
+        if (purchase) {
+          const newPending = Number(purchase.pending) - Number(req.body.amount);
+          await storage.updatePurchase(purchase.id, {
+            pending: String(Math.max(0, newPending)),
+            status: newPending <= 0 ? "paga" : "registada",
+          });
+        }
+      }
+
+      if (req.body.supplierId) {
+        const supplier = await storage.getSupplier(req.body.supplierId);
+        if (supplier) {
+          const newBalance = Number(supplier.balance) - Number(req.body.amount);
+          await storage.updateSupplier(supplier.id, { balance: String(newBalance) });
+        }
       }
     }
 
     if (req.body.bankAccountId) {
+      const isOutgoing = receiptType === "NP" || (receiptType === "RG" && req.body.supplierId && !req.body.customerId);
       await storage.createBankTransaction({
         bankAccountId: req.body.bankAccountId,
         date: new Date(),
-        description: `Recibo ${number}`,
-        type: "credit",
+        description: `${label} ${number}`,
+        type: isOutgoing ? "debit" : "credit",
         amount: req.body.amount,
         reference: number,
-        invoiceId: req.body.invoiceId,
+        invoiceId: req.body.invoiceId || null,
+        purchaseId: req.body.purchaseId || null,
       });
 
       const account = await storage.getBankAccount(req.body.bankAccountId);
       if (account) {
-        const newBalance = Number(account.balance) + Number(req.body.amount);
+        const amt = Number(req.body.amount);
+        const newBalance = isOutgoing
+          ? Number(account.balance) - amt
+          : Number(account.balance) + amt;
         await storage.updateBankAccount(account.id, { balance: String(newBalance) });
       }
     }
