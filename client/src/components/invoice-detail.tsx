@@ -5,9 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
-import { X, FileText, Printer, Download, Mail } from "lucide-react";
-import type { Invoice, InvoiceItem } from "@shared/schema";
+import { X, FileText, Printer, Download, Receipt } from "lucide-react";
+import type { Invoice, InvoiceItem, Receipt as ReceiptType } from "@shared/schema";
 
 interface InvoiceDetailProps {
   invoice: Invoice;
@@ -18,6 +19,18 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
   const { data: detail, isLoading } = useQuery<Invoice & { items: InvoiceItem[] }>({
     queryKey: ["/api/invoices", invoice.id],
   });
+
+  const { data: allReceipts = [] } = useQuery<ReceiptType[]>({
+    queryKey: ["/api/receipts"],
+  });
+
+  const linkedReceipts = allReceipts.filter(r => r.invoiceId === invoice.id);
+
+  const currentInvoice = detail || invoice;
+  const total = Number(currentInvoice.total) || 0;
+  const pending = Number(currentInvoice.pending) || 0;
+  const paid = total - pending;
+  const paidPercent = total > 0 ? Math.min(100, (paid / total) * 100) : 0;
 
   const typeLabels: Record<string, string> = {
     FT: "Fatura",
@@ -115,13 +128,52 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
                 <span>Total</span>
                 <span data-testid="text-detail-total">{formatCurrency(detail.total)}</span>
               </div>
-              {Number(detail.pending) > 0 && (
-                <div className="flex justify-between text-sm text-destructive">
-                  <span>Pendente</span>
-                  <span>{formatCurrency(detail.pending)}</span>
-                </div>
-              )}
             </div>
+
+            {invoice.type !== "NC" && (
+              <>
+                <Separator />
+                <div className="space-y-3" data-testid="section-payment-status">
+                  <h3 className="text-sm font-medium flex items-center gap-2">
+                    <Receipt className="w-4 h-4" />
+                    Estado de Pagamento
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Pago</span>
+                      <span className="text-emerald-600 font-medium">{formatCurrency(paid)}</span>
+                    </div>
+                    {pending > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Pendente</span>
+                        <span className="text-amber-600 font-medium">{formatCurrency(pending)}</span>
+                      </div>
+                    )}
+                    <Progress value={paidPercent} className="h-2" data-testid="progress-payment" />
+                    <p className="text-xs text-muted-foreground text-right">{paidPercent.toFixed(0)}% liquidado</p>
+                  </div>
+
+                  {linkedReceipts.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pagamentos Recebidos</h4>
+                      {linkedReceipts.map((r) => (
+                        <div key={r.id} className="flex justify-between items-center text-sm p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-md border border-emerald-200/50 dark:border-emerald-800/30" data-testid={`payment-receipt-${r.id}`}>
+                          <div>
+                            <p className="font-medium">{r.number}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(r.date)} • {r.paymentMethod}</p>
+                          </div>
+                          <span className="font-medium text-emerald-700 dark:text-emerald-400">{formatCurrency(r.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {linkedReceipts.length === 0 && pending > 0 && (
+                    <p className="text-xs text-muted-foreground italic">Sem pagamentos registados</p>
+                  )}
+                </div>
+              </>
+            )}
           </>
         ) : null}
       </CardContent>

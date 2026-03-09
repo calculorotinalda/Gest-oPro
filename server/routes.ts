@@ -298,8 +298,32 @@ export async function registerRoutes(
 
   app.post("/api/receipts", async (req, res) => {
     const receiptType = req.body.type || "RC";
+    const receiptAmount = Number(req.body.amount);
+
+    if (!receiptAmount || receiptAmount <= 0) {
+      return res.status(400).json({ message: "O montante deve ser superior a zero" });
+    }
+
+    if (req.body.invoiceId) {
+      const invoice = await storage.getInvoice(req.body.invoiceId);
+      if (invoice && receiptAmount > Number(invoice.pending)) {
+        return res.status(400).json({ message: `O montante excede o valor pendente da fatura (${invoice.pending} €)` });
+      }
+    }
+
+    if (req.body.purchaseId) {
+      const purchase = await storage.getPurchase(req.body.purchaseId);
+      if (purchase && receiptAmount > Number(purchase.pending)) {
+        return res.status(400).json({ message: `O montante excede o valor pendente da compra (${purchase.pending} €)` });
+      }
+    }
+
     const number = await storage.getNextReceiptNumber(receiptType);
-    const receipt = await storage.createReceipt({ ...req.body, type: receiptType, number });
+    const receiptData = { ...req.body, type: receiptType, number };
+    if (receiptData.date && !(receiptData.date instanceof Date)) {
+      receiptData.date = new Date(receiptData.date);
+    }
+    const receipt = await storage.createReceipt(receiptData);
 
     const typeLabels: Record<string, string> = { RC: "Recibo", NP: "Nota de Pagamento", RG: "Regularização" };
     const label = typeLabels[receiptType] || "Recibo";
@@ -308,7 +332,8 @@ export async function registerRoutes(
       if (req.body.invoiceId) {
         const invoice = await storage.getInvoice(req.body.invoiceId);
         if (invoice) {
-          const newPending = Number(invoice.pending) - Number(req.body.amount);
+          const appliedAmount = Math.min(receiptAmount, Number(invoice.pending));
+          const newPending = Number(invoice.pending) - appliedAmount;
           await storage.updateInvoice(invoice.id, {
             pending: String(Math.max(0, newPending)),
             status: newPending <= 0 ? "paga" : "emitida",
@@ -319,7 +344,7 @@ export async function registerRoutes(
       if (req.body.customerId) {
         const customer = await storage.getCustomer(req.body.customerId);
         if (customer) {
-          const newBalance = Number(customer.balance) - Number(req.body.amount);
+          const newBalance = Number(customer.balance) - receiptAmount;
           await storage.updateCustomer(customer.id, { balance: String(newBalance) });
         }
       }
@@ -329,7 +354,8 @@ export async function registerRoutes(
       if (req.body.purchaseId) {
         const purchase = await storage.getPurchase(req.body.purchaseId);
         if (purchase) {
-          const newPending = Number(purchase.pending) - Number(req.body.amount);
+          const appliedAmount = Math.min(receiptAmount, Number(purchase.pending));
+          const newPending = Number(purchase.pending) - appliedAmount;
           await storage.updatePurchase(purchase.id, {
             pending: String(Math.max(0, newPending)),
             status: newPending <= 0 ? "paga" : "registada",
@@ -340,7 +366,7 @@ export async function registerRoutes(
       if (req.body.supplierId) {
         const supplier = await storage.getSupplier(req.body.supplierId);
         if (supplier) {
-          const newBalance = Number(supplier.balance) - Number(req.body.amount);
+          const newBalance = Number(supplier.balance) - receiptAmount;
           await storage.updateSupplier(supplier.id, { balance: String(newBalance) });
         }
       }

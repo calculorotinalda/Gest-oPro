@@ -45,12 +45,15 @@ export default function Vendas() {
     return matchesType && matchesSearch;
   });
 
-  const statusBadge = (status: string | null) => {
-    switch (status) {
-      case "paga": return <Badge variant="default" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">Paga</Badge>;
-      case "anulada": return <Badge variant="destructive">Anulada</Badge>;
-      default: return <Badge variant="secondary">Emitida</Badge>;
+  const statusBadge = (inv: Invoice) => {
+    if (inv.status === "paga") return <Badge variant="default" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20">Paga</Badge>;
+    if (inv.status === "anulada") return <Badge variant="destructive">Anulada</Badge>;
+    const pendingVal = Number(inv.pending || 0);
+    const totalVal = Number(inv.total || 0);
+    if (totalVal > 0 && pendingVal < totalVal && pendingVal > 0) {
+      return <Badge variant="secondary" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20">Parcial</Badge>;
     }
+    return <Badge variant="secondary">Emitida</Badge>;
   };
 
   return (
@@ -174,7 +177,7 @@ export default function Vendas() {
                             <TableCell>{formatDate(inv.date)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(inv.pending)}</TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(inv.total)}</TableCell>
-                            <TableCell>{statusBadge(inv.status)}</TableCell>
+                            <TableCell>{statusBadge(inv)}</TableCell>
                             <TableCell>
                               <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); }} data-testid={`button-view-${inv.id}`}>
                                 <Eye className="w-4 h-4" />
