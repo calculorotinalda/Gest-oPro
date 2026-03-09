@@ -69,12 +69,18 @@ shared/
 
 ## Key Features
 - Dashboard with revenue/expenses/profit charts
-- Sales documents with document type selection
-- Purchase management with document type selection and stock updates
+- Sales documents with document type selection and payment status tracking
+- Purchase management with document type selection, stock updates, and payment detail panel
 - Customer & supplier management
 - Current accounts with receipts, payment notes, and regularizations
+  - Join between vendas/compras and contas correntes (receipts linked to invoices/purchases)
+  - Partial payment support with amount validation (frontend + server-side)
+  - Document info panel showing total/paid/pending with progress bar
+  - Quick-fill buttons (Total, 50%) for payment amounts
+  - "Doc. Origem" column showing linked invoice/purchase number
+  - "Parcial" status badge for partially paid documents
 - Bank account management with transactions
-- Exploration maps (analytics)
+- Exploration maps (analytics with Vendas, Clientes, Artigos, Inventário tabs)
 - SAF-T export (sales + inventory) per Portuguese law
 
 ## API Endpoints
