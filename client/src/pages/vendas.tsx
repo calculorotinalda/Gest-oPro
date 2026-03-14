@@ -15,6 +15,7 @@ import { Plus, Search, FileText, X, Eye } from "lucide-react";
 import type { Invoice, Customer, Product } from "@shared/schema";
 import InvoiceForm from "@/components/invoice-form";
 import InvoiceDetail from "@/components/invoice-detail";
+import { EmailDialog } from "@/components/email-dialog";
 
 const docTypes = [
   { value: "all", label: "Todos" },
@@ -25,13 +26,28 @@ const docTypes = [
   { value: "ND", label: "Nota de Débito" },
 ];
 
+interface EmailData { to: string; subject: string; body: string; }
+
+function buildInvoiceEmailBody(invoice: any, companyName: string): EmailData {
+  const docLabel: Record<string, string> = { FT: "Fatura", FS: "Fatura Simplificada", FR: "Fatura-Recibo", NC: "Nota de Crédito", ND: "Nota de Débito" };
+  const label = docLabel[invoice.type] || "Documento";
+  const to = invoice.customerEmail || "";
+  const subject = `${label} ${invoice.number} - ${companyName}`;
+  const body = `Exmo(a) Sr(a),\n\nEnviamos em anexo a ${label} ${invoice.number}, no valor de ${Number(invoice.total).toFixed(2)} €.\n\nFico ao dispor para qualquer esclarecimento adicional.\n\nCom os melhores cumprimentos,\n${companyName}`;
+  return { to, subject, body };
+}
+
 export default function Vendas() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState("FT");
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailData, setEmailData] = useState<EmailData>({ to: "", subject: "", body: "" });
   const { toast } = useToast();
+
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
 
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
@@ -86,10 +102,17 @@ export default function Vendas() {
                 <DialogHeader>
                   <DialogTitle>Nova {docTypes.find(d => d.value === formType)?.label}</DialogTitle>
                 </DialogHeader>
-                <InvoiceForm type={formType} onSuccess={() => {
+                <InvoiceForm type={formType} onSuccess={(invoice) => {
                   setShowForm(false);
                   queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
                   toast({ title: "Documento criado com sucesso" });
+                  if (invoice) {
+                    const allCustomers = queryClient.getQueryData<any[]>(["/api/customers"]) || [];
+                    const customer = allCustomers.find((c: any) => c.id === invoice.customerId);
+                    setEmailData(buildInvoiceEmailBody({ ...invoice, customerEmail: customer?.email || "" }, company?.name || ""));
+                    setEmailOpen(true);
+                  }
                 }} />
               </DialogContent>
             </Dialog>
@@ -199,6 +222,14 @@ export default function Vendas() {
           )}
         </div>
       </div>
+
+      <EmailDialog
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        defaultTo={emailData.to}
+        defaultSubject={emailData.subject}
+        defaultBody={emailData.body}
+      />
     </div>
   );
 }

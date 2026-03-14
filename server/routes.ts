@@ -1,7 +1,19 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCustomerSchema, insertSupplierSchema, insertProductSchema, insertInvoiceSchema, insertInvoiceItemSchema, insertPurchaseSchema, insertPurchaseItemSchema, insertBankAccountSchema, insertBankTransactionSchema, insertReceiptSchema, insertCompanySchema } from "@shared/schema";
+import { db } from "./db";
+import { companies, insertCustomerSchema, insertSupplierSchema, insertProductSchema, insertInvoiceSchema, insertInvoiceItemSchema, insertPurchaseSchema, insertPurchaseItemSchema, insertBankAccountSchema, insertBankTransactionSchema, insertReceiptSchema, insertCompanySchema, insertEmailSettingsSchema } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import nodemailer from "nodemailer";
+
+function toDate(val: unknown, fallback = new Date()): Date {
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+  if (typeof val === "string" || typeof val === "number") {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return fallback;
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -14,9 +26,27 @@ export async function registerRoutes(
   });
 
   app.post("/api/company", async (req, res) => {
-    const data = insertCompanySchema.parse(req.body);
+    const { logo, ...rest } = req.body;
+    const data = insertCompanySchema.parse(rest);
     const company = await storage.upsertCompany(data);
     res.json(company);
+  });
+
+  app.post("/api/company/logo", async (req, res) => {
+    const { logo } = req.body;
+    if (typeof logo !== "string") return res.status(400).json({ message: "Logo inválido" });
+    if (logo.length > 5 * 1024 * 1024) return res.status(400).json({ message: "Logo demasiado grande (máx. 5MB)" });
+    const existing = await storage.getCompany();
+    if (!existing) return res.status(404).json({ message: "Empresa não configurada. Guarde os dados da empresa primeiro." });
+    const [updated] = await db.update(companies).set({ logo }).where(eq(companies.id, existing.id)).returning();
+    res.json({ ok: true, logo: updated.logo });
+  });
+
+  app.delete("/api/company/logo", async (_req, res) => {
+    const existing = await storage.getCompany();
+    if (!existing) return res.status(404).json({ message: "Empresa não configurada" });
+    await db.update(companies).set({ logo: null }).where(eq(companies.id, existing.id));
+    res.json({ ok: true });
   });
 
   app.get("/api/customers", async (_req, res) => {
@@ -115,6 +145,8 @@ export async function registerRoutes(
 
   app.post("/api/invoices", async (req, res) => {
     const { items, ...invoiceData } = req.body;
+    invoiceData.date = toDate(invoiceData.date);
+    if (invoiceData.dueDate) invoiceData.dueDate = toDate(invoiceData.dueDate);
     const number = await storage.getNextInvoiceNumber(invoiceData.type, invoiceData.series || "2026");
 
     const isCreditNote = invoiceData.type === "NC";
@@ -189,6 +221,8 @@ export async function registerRoutes(
 
   app.post("/api/purchases", async (req, res) => {
     const { items, ...purchaseData } = req.body;
+    purchaseData.date = toDate(purchaseData.date);
+    if (purchaseData.dueDate) purchaseData.dueDate = toDate(purchaseData.dueDate);
     const purchaseType = purchaseData.type || "VFT";
     const number = await storage.getNextPurchaseNumber(purchaseType);
 
@@ -276,7 +310,9 @@ export async function registerRoutes(
   });
 
   app.post("/api/bank-transactions", async (req, res) => {
-    const data = insertBankTransactionSchema.parse(req.body);
+    const body = { ...req.body };
+    body.date = toDate(body.date);
+    const data = insertBankTransactionSchema.parse(body);
     const transaction = await storage.createBankTransaction(data);
 
     const account = await storage.getBankAccount(data.bankAccountId);
@@ -320,9 +356,7 @@ export async function registerRoutes(
 
     const number = await storage.getNextReceiptNumber(receiptType);
     const receiptData = { ...req.body, type: receiptType, number };
-    if (receiptData.date && !(receiptData.date instanceof Date)) {
-      receiptData.date = new Date(receiptData.date);
-    }
+    receiptData.date = toDate(receiptData.date);
     const receipt = await storage.createReceipt(receiptData);
 
     const typeLabels: Record<string, string> = { RC: "Recibo", NP: "Nota de Pagamento", RG: "Regularização" };
@@ -401,6 +435,70 @@ export async function registerRoutes(
   app.get("/api/dashboard", async (_req, res) => {
     const stats = await storage.getDashboardStats();
     res.json(stats);
+  });
+
+  app.get("/api/email-settings", async (_req, res) => {
+    const settings = await storage.getEmailSettings();
+    if (!settings) {
+      return res.json({ smtpHost: "", smtpPort: 587, smtpUser: "", smtpPass: "", smtpFrom: "", smtpSecure: false, enabled: false });
+    }
+    const { smtpPass: _pass, ...safeSettings } = settings;
+    res.json({ ...safeSettings, smtpPassSet: !!_pass });
+  });
+
+  app.post("/api/email-settings", async (req, res) => {
+    try {
+      const data = insertEmailSettingsSchema.parse(req.body);
+      const existing = await storage.getEmailSettings();
+      if (!req.body.smtpPass && existing?.smtpPass) {
+        data.smtpPass = existing.smtpPass;
+      }
+      const settings = await storage.upsertEmailSettings(data);
+      const { smtpPass: _pass, ...safeSettings } = settings;
+      res.json({ ...safeSettings, smtpPassSet: !!_pass });
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/email/send", async (req, res) => {
+    try {
+      const { to, subject, body, cc } = req.body;
+      if (!to || !subject || !body) {
+        return res.status(400).json({ message: "Campos obrigatórios: to, subject, body" });
+      }
+
+      const settings = await storage.getEmailSettings();
+      if (!settings?.enabled || !settings?.smtpHost || !settings?.smtpUser) {
+        return res.status(503).json({ message: "Email não configurado. Configure o servidor SMTP em Configurações." });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: settings.smtpHost,
+        port: settings.smtpPort || 587,
+        secure: settings.smtpSecure || false,
+        auth: {
+          user: settings.smtpUser,
+          pass: settings.smtpPass || "",
+        },
+      });
+
+      const company = await storage.getCompany();
+      const fromName = company?.name || "Sales-Rotina";
+      const fromAddress = settings.smtpFrom || settings.smtpUser;
+
+      await transporter.sendMail({
+        from: `"${fromName}" <${fromAddress}>`,
+        to,
+        cc: cc || undefined,
+        subject,
+        html: body,
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: `Erro ao enviar email: ${err.message}` });
+    }
   });
 
   app.get("/api/saft/sales", async (req, res) => {

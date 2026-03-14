@@ -7,7 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
-import { X, FileText, Printer, Download, Receipt } from "lucide-react";
+import { X, FileText, Printer, Receipt } from "lucide-react";
+import { printInvoiceDocument } from "@/lib/print-utils";
 import type { Invoice, InvoiceItem, Receipt as ReceiptType } from "@shared/schema";
 
 interface InvoiceDetailProps {
@@ -23,6 +24,8 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
   const { data: allReceipts = [] } = useQuery<ReceiptType[]>({
     queryKey: ["/api/receipts"],
   });
+
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
 
   const linkedReceipts = allReceipts.filter(r => r.invoiceId === invoice.id);
 
@@ -40,6 +43,11 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
     ND: "Nota de Débito",
   };
 
+  function handlePrint() {
+    const doc = detail || invoice;
+    printInvoiceDocument(doc as any, company || null);
+  }
+
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-3 flex flex-row items-center justify-between gap-1">
@@ -48,11 +56,8 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
           <p className="text-sm text-muted-foreground">{typeLabels[invoice.type] || invoice.type}</p>
         </div>
         <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" data-testid="button-print">
+          <Button size="icon" variant="ghost" onClick={handlePrint} data-testid="button-print" title="Imprimir documento">
             <Printer className="w-4 h-4" />
-          </Button>
-          <Button size="icon" variant="ghost" data-testid="button-download">
-            <Download className="w-4 h-4" />
           </Button>
           <Button size="icon" variant="ghost" onClick={onClose} data-testid="button-close-detail">
             <X className="w-4 h-4" />
@@ -174,6 +179,13 @@ export default function InvoiceDetail({ invoice, onClose }: InvoiceDetailProps) 
                 </div>
               </>
             )}
+
+            <div className="pt-2">
+              <Button variant="outline" size="sm" className="w-full gap-2" onClick={handlePrint} data-testid="button-print-full">
+                <Printer className="w-4 h-4" />
+                Imprimir Documento A4
+              </Button>
+            </div>
           </>
         ) : null}
       </CardContent>

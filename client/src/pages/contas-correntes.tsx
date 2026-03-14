@@ -15,7 +15,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { Plus, Search, Receipt, FileText, AlertCircle } from "lucide-react";
+import { Plus, Search, Receipt, FileText, AlertCircle, Printer } from "lucide-react";
+import { printReceiptDocument } from "@/lib/print-utils";
+import { EmailDialog } from "@/components/email-dialog";
 import type { Customer, Supplier, Invoice, Purchase, BankAccount, Receipt as ReceiptType } from "@shared/schema";
 
 const ccDocTypes = [
@@ -37,6 +39,7 @@ export default function ContasCorrente() {
   const { data: invoices = [] } = useQuery<Invoice[]>({ queryKey: ["/api/invoices"] });
   const { data: purchases = [] } = useQuery<Purchase[]>({ queryKey: ["/api/purchases"] });
   const { data: bankAccounts = [] } = useQuery<BankAccount[]>({ queryKey: ["/api/bank-accounts"] });
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
 
   const [customerId, setCustomerId] = useState("");
   const [supplierId, setSupplierId] = useState("");
@@ -48,6 +51,8 @@ export default function ContasCorrente() {
   const [paymentMethod, setPaymentMethod] = useState("transferencia");
   const [notes, setNotes] = useState("");
   const [rgEntity, setRgEntity] = useState<"cliente" | "fornecedor">("cliente");
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailData, setEmailData] = useState({ to: "", subject: "", body: "" });
 
   const resetForm = () => {
     setCustomerId(""); setSupplierId(""); setInvoiceId(""); setPurchaseId("");
@@ -118,9 +123,10 @@ export default function ContasCorrente() {
         data.purchaseId = purchaseId ? Number(purchaseId) : null;
       }
 
-      await apiRequest("POST", "/api/receipts", data);
+      const res = await apiRequest("POST", "/api/receipts", data);
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (receipt) => {
       setShowForm(false);
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
@@ -128,8 +134,25 @@ export default function ContasCorrente() {
       queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bank-accounts"] });
-      toast({ title: `${ccDocTypes.find(d => d.value === formType)?.label} criado com sucesso` });
+      const docLabel = ccDocTypes.find(d => d.value === formType)?.label || formType;
+      toast({ title: `${docLabel} criado com sucesso` });
       resetForm();
+      if (receipt) {
+        const isClient = receipt.customerId;
+        const recipientEmail = isClient
+          ? (queryClient.getQueryData<any[]>(["/api/customers"]) || []).find((c: any) => c.id === receipt.customerId)?.email || ""
+          : (queryClient.getQueryData<any[]>(["/api/suppliers"]) || []).find((s: any) => s.id === receipt.supplierId)?.email || "";
+        const entityName = isClient ? receipt.customerName : receipt.supplierName;
+        setEmailData({
+          to: recipientEmail,
+          subject: `${docLabel} ${receipt.number} - ${company?.name || ""}`,
+          body: `Exmo(a) Sr(a) ${entityName || ""},\n\nAnexamos o ${docLabel} n.º ${receipt.number} no valor de ${Number(receipt.amount).toFixed(2)} €.\n\nFico ao dispor para qualquer esclarecimento.\n\nCom os melhores cumprimentos,\n${company?.name || ""}`,
+        });
+        setEmailOpen(true);
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao criar documento", description: error.message, variant: "destructive" });
     },
   });
 
@@ -164,6 +187,25 @@ export default function ContasCorrente() {
       return p ? p.number : null;
     }
     return null;
+  };
+
+  const handlePrintReceipt = (r: ReceiptType) => {
+    const invRef = r.invoiceId ? invoices.find(i => i.id === r.invoiceId)?.number : null;
+    const purRef = r.purchaseId ? purchases.find(p => p.id === r.purchaseId)?.number : null;
+    const bankName = (r as any).bankAccountId ? bankAccounts.find(b => b.id === (r as any).bankAccountId)?.name : null;
+    printReceiptDocument({
+      type: (r as any).type || "RC",
+      number: r.number,
+      date: r.date,
+      customerName: r.customerName,
+      supplierName: (r as any).supplierName,
+      amount: r.amount,
+      paymentMethod: r.paymentMethod,
+      notes: (r as any).notes,
+      invoiceRef: invRef,
+      purchaseRef: purRef,
+      bankAccountName: bankName,
+    }, company || null);
   };
 
   return (
@@ -438,11 +480,12 @@ export default function ContasCorrente() {
                   <TableHead>Data</TableHead>
                   <TableHead>Método</TableHead>
                   <TableHead className="text-right">Montante</TableHead>
+                  <TableHead className="w-[50px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                  <TableRow><TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                     <Receipt className="w-12 h-12 mx-auto mb-3 opacity-20" /><p>Sem documentos de conta corrente</p>
                   </TableCell></TableRow>
                 ) : filtered.map((r) => (
@@ -469,6 +512,11 @@ export default function ContasCorrente() {
                     <TableCell>{formatDate(r.date)}</TableCell>
                     <TableCell className="capitalize">{r.paymentMethod}</TableCell>
                     <TableCell className="text-right font-medium">{formatCurrency(r.amount)}</TableCell>
+                    <TableCell>
+                      <Button size="icon" variant="ghost" onClick={() => handlePrintReceipt(r)} data-testid={`button-print-receipt-${r.id}`} title="Imprimir">
+                        <Printer className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -476,6 +524,14 @@ export default function ContasCorrente() {
           )}
         </CardContent>
       </Card>
+
+      <EmailDialog
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        defaultTo={emailData.to}
+        defaultSubject={emailData.subject}
+        defaultBody={emailData.body}
+      />
     </div>
   );
 }

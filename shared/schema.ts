@@ -14,6 +14,7 @@ export const companies = pgTable("companies", {
   phone: text("phone"),
   email: text("email"),
   website: text("website"),
+  logo: text("logo"),
 });
 
 export const customers = pgTable("customers", {
@@ -51,6 +52,7 @@ export const products = pgTable("products", {
   purchasePrice: decimal("purchase_price", { precision: 12, scale: 2 }).default("0"),
   salePrice: decimal("sale_price", { precision: 12, scale: 2 }).default("0"),
   vatRate: decimal("vat_rate", { precision: 5, scale: 2 }).default("23"),
+  vatExemptionReason: text("vat_exemption_reason"),
   stock: decimal("stock", { precision: 12, scale: 2 }).default("0"),
   minStock: decimal("min_stock", { precision: 12, scale: 2 }).default("0"),
   category: text("category"),
@@ -86,6 +88,7 @@ export const invoiceItems = pgTable("invoice_items", {
   unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
   discount: decimal("discount", { precision: 5, scale: 2 }).default("0"),
   vatRate: decimal("vat_rate", { precision: 5, scale: 2 }).default("23"),
+  vatExemptionReason: text("vat_exemption_reason"),
   total: decimal("total", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -112,7 +115,9 @@ export const purchaseItems = pgTable("purchase_items", {
   description: text("description").notNull(),
   quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
   unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  discount: decimal("discount", { precision: 5, scale: 2 }).default("0"),
   vatRate: decimal("vat_rate", { precision: 5, scale: 2 }).default("23"),
+  vatExemptionReason: text("vat_exemption_reason"),
   total: decimal("total", { precision: 12, scale: 2 }).notNull(),
 });
 
@@ -133,6 +138,7 @@ export const bankTransactions = pgTable("bank_transactions", {
   type: text("type").notNull(), // credit, debit
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   reference: text("reference"),
+  notes: text("notes"),
   invoiceId: integer("invoice_id").references(() => invoices.id),
   purchaseId: integer("purchase_id").references(() => purchases.id),
 });
@@ -188,3 +194,18 @@ export type BankTransaction = typeof bankTransactions.$inferSelect;
 export type InsertBankTransaction = z.infer<typeof insertBankTransactionSchema>;
 export type Receipt = typeof receipts.$inferSelect;
 export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
+
+export const emailSettings = pgTable("email_settings", {
+  id: serial("id").primaryKey(),
+  smtpHost: text("smtp_host").default(""),
+  smtpPort: integer("smtp_port").default(587),
+  smtpUser: text("smtp_user").default(""),
+  smtpPass: text("smtp_pass").default(""),
+  smtpFrom: text("smtp_from").default(""),
+  smtpSecure: boolean("smtp_secure").default(false),
+  enabled: boolean("enabled").default(false),
+});
+
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings).omit({ id: true });
+export type EmailSettings = typeof emailSettings.$inferSelect;
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;

@@ -5,14 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { Plus, Landmark, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Plus, Landmark, ArrowUpRight, ArrowDownRight, Printer } from "lucide-react";
+import { printBankDocument } from "@/lib/print-utils";
 import type { BankAccount, BankTransaction } from "@shared/schema";
 
 export default function Bancos() {
@@ -22,12 +23,18 @@ export default function Bancos() {
   const { toast } = useToast();
 
   const { data: accounts = [], isLoading } = useQuery<BankAccount[]>({ queryKey: ["/api/bank-accounts"] });
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
+
+  const transactionsUrl = selectedAccount
+    ? `/api/bank-transactions?bankAccountId=${selectedAccount}`
+    : "/api/bank-transactions";
+
   const { data: transactions = [] } = useQuery<BankTransaction[]>({
-    queryKey: ["/api/bank-transactions", selectedAccount ? `?bankAccountId=${selectedAccount}` : ""],
+    queryKey: [transactionsUrl],
   });
 
   const [accountForm, setAccountForm] = useState({ name: "", bank: "", iban: "", balance: "0" });
-  const [transForm, setTransForm] = useState({ bankAccountId: "", description: "", type: "credit", amount: "0", reference: "" });
+  const [transForm, setTransForm] = useState({ bankAccountId: "", description: "", type: "credit", amount: "0", reference: "", notes: "" });
 
   const accountMutation = useMutation({
     mutationFn: async () => { await apiRequest("POST", "/api/bank-accounts", accountForm); },
@@ -37,6 +44,9 @@ export default function Bancos() {
       toast({ title: "Conta criada com sucesso" });
       setAccountForm({ name: "", bank: "", iban: "", balance: "0" });
     },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao criar conta", description: error.message, variant: "destructive" });
+    },
   });
 
   const transMutation = useMutation({
@@ -44,19 +54,50 @@ export default function Bancos() {
       await apiRequest("POST", "/api/bank-transactions", {
         ...transForm,
         bankAccountId: Number(transForm.bankAccountId),
-        date: new Date(),
+        date: new Date().toISOString(),
       });
     },
     onSuccess: () => {
       setShowTransForm(false);
       queryClient.invalidateQueries({ queryKey: ["/api/bank-transactions"] });
+      queryClient.invalidateQueries({ queryKey: [transactionsUrl] });
       queryClient.invalidateQueries({ queryKey: ["/api/bank-accounts"] });
-      toast({ title: "Movimento registado" });
-      setTransForm({ bankAccountId: "", description: "", type: "credit", amount: "0", reference: "" });
+      toast({ title: "Movimento registado com sucesso" });
+      setTransForm({ bankAccountId: "", description: "", type: "credit", amount: "0", reference: "", notes: "" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao registar movimento", description: error.message, variant: "destructive" });
     },
   });
 
   const totalBalance = accounts.reduce((sum, a) => sum + Number(a.balance || 0), 0);
+
+  function handlePrintExtrato() {
+    const account = selectedAccount ? accounts.find(a => a.id === selectedAccount) : null;
+    const filtered = transactions;
+    const dates = filtered.map(t => new Date(t.date)).filter(d => !isNaN(d.getTime()));
+    const periodStart = dates.length ? new Date(Math.min(...dates.map(d => d.getTime()))) : undefined;
+    const periodEnd = dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : undefined;
+    const openingBalance = account ? Number(account.balance) - filtered.reduce((s, t) => s + (t.type === "credit" ? Number(t.amount) : -Number(t.amount)), 0) : 0;
+
+    printBankDocument({
+      accountName: account?.name || "Todas as Contas",
+      bank: account?.bank,
+      iban: account?.iban,
+      openingBalance,
+      closingBalance: account ? Number(account.balance) : undefined,
+      periodStart,
+      periodEnd,
+      transactions: filtered.map(t => ({
+        date: t.date,
+        description: t.description,
+        reference: t.reference,
+        notes: (t as any).notes,
+        type: t.type,
+        amount: t.amount,
+      })),
+    }, company || null);
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -66,6 +107,9 @@ export default function Bancos() {
           <p className="text-sm text-muted-foreground">Gestão de contas bancárias</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handlePrintExtrato} data-testid="button-print-extrato">
+            <Printer className="w-4 h-4 mr-2" />Extrato
+          </Button>
           <Dialog open={showTransForm} onOpenChange={setShowTransForm}>
             <DialogTrigger asChild>
               <Button variant="secondary" data-testid="button-new-transaction"><Plus className="w-4 h-4 mr-2" />Movimento</Button>
@@ -92,6 +136,7 @@ export default function Bancos() {
                   <div className="space-y-2"><Label>Montante</Label><Input type="number" step="0.01" value={transForm.amount} onChange={(e) => setTransForm({ ...transForm, amount: e.target.value })} data-testid="input-trans-amount" /></div>
                 </div>
                 <div className="space-y-2"><Label>Referência</Label><Input value={transForm.reference} onChange={(e) => setTransForm({ ...transForm, reference: e.target.value })} /></div>
+                <div className="space-y-2"><Label>Observações</Label><Textarea rows={2} placeholder="Notas adicionais..." value={transForm.notes} onChange={(e) => setTransForm({ ...transForm, notes: e.target.value })} data-testid="input-trans-notes" /></div>
                 <div className="flex justify-end gap-2">
                   <Button variant="secondary" onClick={() => setShowTransForm(false)}>Cancelar</Button>
                   <Button onClick={() => transMutation.mutate()} disabled={transMutation.isPending || !transForm.bankAccountId || !transForm.description} data-testid="button-save-transaction">
@@ -157,14 +202,19 @@ export default function Bancos() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Movimentos Bancários</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              Movimentos Bancários
+              {selectedAccount && <span className="text-sm font-normal text-muted-foreground ml-2">— {accounts.find(a => a.id === selectedAccount)?.name}</span>}
+            </CardTitle>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Data</TableHead>
-                <TableHead>Descrição</TableHead>
+                <TableHead>Descrição / Observações</TableHead>
                 <TableHead>Referência</TableHead>
                 <TableHead className="text-right">Montante</TableHead>
                 <TableHead>Tipo</TableHead>
@@ -177,9 +227,12 @@ export default function Bancos() {
                 </TableCell></TableRow>
               ) : transactions.map((t) => (
                 <TableRow key={t.id} data-testid={`row-transaction-${t.id}`}>
-                  <TableCell>{formatDate(t.date)}</TableCell>
-                  <TableCell className="font-medium">{t.description}</TableCell>
-                  <TableCell className="text-muted-foreground">{t.reference}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatDate(t.date)}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{t.description}</div>
+                    {(t as any).notes && <div className="text-xs text-muted-foreground mt-0.5">{(t as any).notes}</div>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-xs">{t.reference}</TableCell>
                   <TableCell className={`text-right font-medium ${t.type === "credit" ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                     {t.type === "credit" ? "+" : "-"} {formatCurrency(t.amount)}
                   </TableCell>

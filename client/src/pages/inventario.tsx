@@ -11,7 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search, Package, Edit2 } from "lucide-react";
+import { VAT_RATES, VAT_EXEMPTION_REASONS, normalizeVatRate } from "@/lib/vat";
 import type { Product } from "@shared/schema";
 
 export default function Inventario() {
@@ -23,11 +25,11 @@ export default function Inventario() {
   const { data: products = [], isLoading } = useQuery<Product[]>({ queryKey: ["/api/products"] });
 
   const [form, setForm] = useState({
-    code: "", name: "", description: "", unit: "un", purchasePrice: "0", salePrice: "0", vatRate: "23", stock: "0", minStock: "0", category: "",
+    code: "", name: "", description: "", unit: "un", purchasePrice: "0", salePrice: "0", vatRate: "23", vatExemptionReason: "", stock: "0", minStock: "0", category: "",
   });
 
   const resetForm = () => {
-    setForm({ code: "", name: "", description: "", unit: "un", purchasePrice: "0", salePrice: "0", vatRate: "23", stock: "0", minStock: "0", category: "" });
+    setForm({ code: "", name: "", description: "", unit: "un", purchasePrice: "0", salePrice: "0", vatRate: "23", vatExemptionReason: "", stock: "0", minStock: "0", category: "" });
     setEditProduct(null);
   };
 
@@ -36,7 +38,7 @@ export default function Inventario() {
     setForm({
       code: product.code, name: product.name, description: product.description || "",
       unit: product.unit || "un", purchasePrice: product.purchasePrice || "0",
-      salePrice: product.salePrice || "0", vatRate: product.vatRate || "23",
+      salePrice: product.salePrice || "0", vatRate: normalizeVatRate(product.vatRate), vatExemptionReason: product.vatExemptionReason || "",
       stock: product.stock || "0", minStock: product.minStock || "0", category: product.category || "",
     });
     setShowForm(true);
@@ -55,6 +57,9 @@ export default function Inventario() {
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       toast({ title: editProduct ? "Produto atualizado" : "Produto criado com sucesso" });
       resetForm();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao guardar produto", description: error.message, variant: "destructive" });
     },
   });
 
@@ -89,7 +94,34 @@ export default function Inventario() {
                 <div className="space-y-2"><Label>Unidade</Label><Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></div>
                 <div className="space-y-2"><Label>Preço Compra</Label><Input type="number" step="0.01" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })} data-testid="input-purchase-price" /></div>
                 <div className="space-y-2"><Label>Preço Venda</Label><Input type="number" step="0.01" value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: e.target.value })} data-testid="input-sale-price" /></div>
-                <div className="space-y-2"><Label>IVA %</Label><Input type="number" value={form.vatRate} onChange={(e) => setForm({ ...form, vatRate: e.target.value })} /></div>
+                <div className="space-y-2">
+                  <Label>IVA</Label>
+                  <Select value={form.vatRate} onValueChange={(v) => setForm({ ...form, vatRate: v, vatExemptionReason: v !== "0" ? "" : form.vatExemptionReason })}>
+                    <SelectTrigger data-testid="select-product-vat">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VAT_RATES.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {form.vatRate === "0" && (
+                  <div className="space-y-2 col-span-2">
+                    <Label className="text-amber-600">Motivo de isenção</Label>
+                    <Select value={form.vatExemptionReason} onValueChange={(v) => setForm({ ...form, vatExemptionReason: v })}>
+                      <SelectTrigger data-testid="select-product-exemption">
+                        <SelectValue placeholder="Selecionar motivo de isenção" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VAT_EXEMPTION_REASONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>Stock</Label><Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} data-testid="input-stock" /></div>
@@ -97,7 +129,7 @@ export default function Inventario() {
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="secondary" onClick={() => { setShowForm(false); resetForm(); }}>Cancelar</Button>
-                <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.code || !form.name} data-testid="button-save-product">
+                <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.code || !form.name || (form.vatRate === "0" && !form.vatExemptionReason)} data-testid="button-save-product">
                   {mutation.isPending ? "A guardar..." : editProduct ? "Atualizar" : "Criar Produto"}
                 </Button>
               </div>

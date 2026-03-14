@@ -3,7 +3,7 @@ import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 import {
   companies, customers, suppliers, products,
   invoices, invoiceItems, purchases, purchaseItems,
-  bankAccounts, bankTransactions, receipts,
+  bankAccounts, bankTransactions, receipts, emailSettings,
   type Company, type InsertCompany,
   type Customer, type InsertCustomer,
   type Supplier, type InsertSupplier,
@@ -15,6 +15,7 @@ import {
   type BankAccount, type InsertBankAccount,
   type BankTransaction, type InsertBankTransaction,
   type Receipt, type InsertReceipt,
+  type EmailSettings, type InsertEmailSettings,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -67,6 +68,9 @@ export interface IStorage {
   getReceipts(): Promise<Receipt[]>;
   createReceipt(data: InsertReceipt): Promise<Receipt>;
   getNextReceiptNumber(type: string): Promise<string>;
+
+  getEmailSettings(): Promise<EmailSettings | undefined>;
+  upsertEmailSettings(data: InsertEmailSettings): Promise<EmailSettings>;
 
   getDashboardStats(): Promise<{
     revenue: number;
@@ -302,6 +306,21 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select({ count: sql<number>`count(*)` }).from(receipts).where(eq(receipts.type, type));
     const nextNum = (Number(result[0].count) || 0) + 1;
     return `${prefix} 2026/${nextNum}`;
+  }
+
+  async getEmailSettings(): Promise<EmailSettings | undefined> {
+    const [settings] = await db.select().from(emailSettings).limit(1);
+    return settings;
+  }
+
+  async upsertEmailSettings(data: InsertEmailSettings): Promise<EmailSettings> {
+    const existing = await this.getEmailSettings();
+    if (existing) {
+      const [updated] = await db.update(emailSettings).set(data).where(eq(emailSettings.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(emailSettings).values(data).returning();
+    return created;
   }
 
   async getDashboardStats() {

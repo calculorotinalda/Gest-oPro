@@ -1,4 +1,5 @@
 import { Switch, Route } from "wouter";
+import { useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -16,8 +17,21 @@ import Bancos from "@/pages/bancos";
 import Mapas from "@/pages/mapas";
 import Saft from "@/pages/saft";
 import ContasCorrente from "@/pages/contas-correntes";
+import Configuracoes from "@/pages/configuracoes";
+
+import { applyTheme } from "@/lib/theme";
 
 function Router() {
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("sales_rotina_prefs");
+      const theme = saved ? JSON.parse(saved).theme || "light" : "light";
+      applyTheme(theme);
+    } catch {
+      applyTheme("light");
+    }
+  }, []);
+
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
@@ -30,6 +44,7 @@ function Router() {
       <Route path="/bancos" component={Bancos} />
       <Route path="/mapas" component={Mapas} />
       <Route path="/saft" component={Saft} />
+      <Route path="/configuracoes" component={Configuracoes} />
       <Route component={NotFound} />
     </Switch>
   );

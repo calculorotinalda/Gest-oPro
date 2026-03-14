@@ -25,11 +25,20 @@ client/src/
     saft.tsx               - SAF-T export for Portuguese legislation
   components/
     app-sidebar.tsx        - Navigation sidebar
-    invoice-form.tsx       - Invoice creation form
-    invoice-detail.tsx     - Invoice detail view
+    invoice-form.tsx       - Invoice creation form (onSuccess receives created invoice)
+    invoice-detail.tsx     - Invoice detail view with A4 print button
+    email-dialog.tsx       - Reusable email sending dialog (EmailDialog component)
+                             Opens after document save in Vendas, Compras, Contas Correntes
+                             Pre-fills To/Subject/Body from document data and customer/supplier
+                             Disabled when SMTP not configured, links to Configurações
   lib/
+    print-utils.ts         - A4 document HTML generator for printing (Cegid Business style)
+                             printInvoiceDocument() - for FT/FS/FR/NC/ND/VFT etc.
+                             printReceiptDocument() - for RC/NP/RG
     format.ts              - Currency/date/number formatting (pt-PT)
     queryClient.ts         - TanStack Query client config
+    vat.ts                 - VAT rates, exemption reasons, normalizeVatRate helper
+    theme.ts               - applyTheme() helper (light/dark/system)
 
 server/
   db.ts              - Database connection (Drizzle + pg)
@@ -47,6 +56,7 @@ shared/
 - purchases (with type: VFT, VFR, VNC, VND), purchase_items
 - bank_accounts, bank_transactions
 - receipts (with type: RC, NP, RG; supports customer and supplier links)
+- email_settings (SMTP config: host, port, user, pass, from, secure, enabled)
 
 ## Document Types
 ### Sales (Vendas)
@@ -80,6 +90,11 @@ shared/
   - "Doc. Origem" column showing linked invoice/purchase number
   - "Parcial" status badge for partially paid documents
 - Bank account management with transactions
+- VAT rate dropdown (0%/6%/13%/23%) in all creation forms with conditional exemption reason
+  - When 0% is selected, Portuguese legal exemption reason dropdown appears (M01-M99 codes)
+  - Save buttons disabled until exemption reason is selected for 0% items
+  - VAT rate values normalized between DB format and UI
+  - vatExemptionReason field on products, invoiceItems, and purchaseItems tables
 - Exploration maps (analytics with Vendas, Clientes, Artigos, Inventário tabs)
 - SAF-T export (sales + inventory) per Portuguese law
 
@@ -92,3 +107,5 @@ All prefixed with `/api/`:
 - GET/POST receipts (type-based: RC, NP, RG)
 - GET dashboard (stats)
 - GET saft/sales, saft/inventory (XML download)
+- GET/POST email-settings (SMTP configuration)
+- POST email/send (send email via configured SMTP)

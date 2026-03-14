@@ -1,11 +1,14 @@
 import { useLocation, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2, Landmark, BarChart3, Download, Receipt, TrendingUp
+  LayoutDashboard, FileText, ShoppingCart, Package, Users, Building2,
+  Landmark, BarChart3, Download, Receipt, Settings
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
   SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter,
 } from "@/components/ui/sidebar";
+import defaultLogoUrl from "@assets/logo_calculorotina.png";
 
 const navGroups = [
   {
@@ -38,22 +41,31 @@ const navGroups = [
       { title: "Exportar SAF-T", url: "/saft", icon: Download },
     ],
   },
+  {
+    label: "Sistema",
+    items: [
+      { title: "Configurações", url: "/configuracoes", icon: Settings },
+    ],
+  },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
+  const customLogo = company?.logo;
+  const activeLogo = customLogo || defaultLogoUrl;
 
   return (
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <TrendingUp className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold leading-tight" data-testid="text-app-name">Sales-Rotina</h2>
-            <p className="text-xs text-muted-foreground">Software de Gestão</p>
-          </div>
+        <div className="flex flex-col items-center gap-1">
+          <img
+            src={activeLogo}
+            alt="Calculorotina"
+            className={`h-9 w-auto object-contain${customLogo ? "" : " dark:brightness-0 dark:invert"}`}
+            data-testid="img-logo"
+          />
+          <p className="text-xs text-muted-foreground" data-testid="text-app-name">Sales-Rotina</p>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -67,7 +79,7 @@ export function AppSidebar() {
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild data-active={isActive}>
-                        <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s/g, "-")}`}>
+                        <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/[\s/]/g, "-")}`}>
                           <item.icon className="w-4 h-4" />
                           <span>{item.title}</span>
                         </Link>

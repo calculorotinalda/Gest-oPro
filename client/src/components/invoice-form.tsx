@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,11 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/format";
 import { Plus, Trash2 } from "lucide-react";
+import { VAT_RATES, VAT_EXEMPTION_REASONS, normalizeVatRate } from "@/lib/vat";
 import type { Customer, Product } from "@shared/schema";
 
 interface InvoiceFormProps {
   type: string;
-  onSuccess: () => void;
+  onSuccess: (invoice?: any) => void;
 }
 
 interface LineItem {
@@ -24,14 +26,16 @@ interface LineItem {
   unitPrice: string;
   discount: string;
   vatRate: string;
+  vatExemptionReason: string;
 }
 
 export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
+  const { toast } = useToast();
   const [customerId, setCustomerId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([
-    { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23" },
+    { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23", vatExemptionReason: "" },
   ]);
 
   const { data: customers = [] } = useQuery<Customer[]>({ queryKey: ["/api/customers"] });
@@ -54,7 +58,7 @@ export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
   const total = subtotal + vatTotal;
 
   const addItem = () => {
-    setItems([...items, { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23" }]);
+    setItems([...items, { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23", vatExemptionReason: "" }]);
   };
 
   const removeItem = (index: number) => {
@@ -73,9 +77,14 @@ export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
         newItems[index].productCode = product.code;
         newItems[index].description = product.name;
         newItems[index].unitPrice = product.salePrice || "0";
-        newItems[index].vatRate = product.vatRate || "23";
+        newItems[index].vatRate = normalizeVatRate(product.vatRate);
+        newItems[index].vatExemptionReason = product.vatExemptionReason || "";
         newItems[index].productId = product.id;
       }
+    }
+
+    if (field === "vatRate" && value !== "0") {
+      newItems[index].vatExemptionReason = "";
     }
 
     setItems(newItems);
@@ -103,13 +112,22 @@ export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
           unitPrice: item.unitPrice,
           discount: item.discount,
           vatRate: item.vatRate,
+          vatExemptionReason: item.vatRate === "0" ? item.vatExemptionReason : null,
           total: calcItemTotal(item).toFixed(2),
         })),
       };
-      await apiRequest("POST", "/api/invoices", invoiceData);
+      const res = await apiRequest("POST", "/api/invoices", invoiceData);
+      return res.json();
     },
-    onSuccess,
+    onSuccess: (invoice) => {
+      onSuccess(invoice);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao guardar documento", description: error.message, variant: "destructive" });
+    },
   });
+
+  const hasExemptItems = items.some(item => item.vatRate === "0" && !item.vatExemptionReason);
 
   return (
     <div className="space-y-6">
@@ -147,59 +165,91 @@ export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
             <Plus className="w-3 h-3 mr-1" /> Adicionar linha
           </Button>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[180px]">Produto</TableHead>
-              <TableHead>Descrição</TableHead>
-              <TableHead className="w-[80px]">Qtd</TableHead>
-              <TableHead className="w-[100px]">Preço Uni.</TableHead>
-              <TableHead className="w-[70px]">IVA %</TableHead>
-              <TableHead className="w-[70px]">Desc %</TableHead>
-              <TableHead className="w-[100px] text-right">Total</TableHead>
-              <TableHead className="w-[40px]" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item, idx) => (
-              <TableRow key={idx}>
-                <TableCell>
-                  <Select value={item.productId ? String(item.productId) : ""} onValueChange={(v) => updateItem(idx, "productId", v)}>
-                    <SelectTrigger className="h-8" data-testid={`select-product-${idx}`}>
-                      <SelectValue placeholder="Produto" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {products.map((p) => (
-                        <SelectItem key={p.id} value={String(p.id)}>{p.code} - {p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  <Input className="h-8" value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} data-testid={`input-desc-${idx}`} />
-                </TableCell>
-                <TableCell>
-                  <Input className="h-8" type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} data-testid={`input-qty-${idx}`} />
-                </TableCell>
-                <TableCell>
-                  <Input className="h-8" type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)} data-testid={`input-price-${idx}`} />
-                </TableCell>
-                <TableCell>
-                  <Input className="h-8" type="number" value={item.vatRate} onChange={(e) => updateItem(idx, "vatRate", e.target.value)} />
-                </TableCell>
-                <TableCell>
-                  <Input className="h-8" type="number" value={item.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} />
-                </TableCell>
-                <TableCell className="text-right font-medium">{formatCurrency(calcItemTotal(item))}</TableCell>
-                <TableCell>
-                  <Button size="icon" variant="ghost" onClick={() => removeItem(idx)} disabled={items.length === 1} data-testid={`button-remove-${idx}`}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </TableCell>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[160px]">Produto</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead className="w-[70px]">Qtd</TableHead>
+                <TableHead className="w-[90px]">Preço</TableHead>
+                <TableHead className="w-[110px]">IVA</TableHead>
+                <TableHead className="w-[65px]">Desc %</TableHead>
+                <TableHead className="w-[90px] text-right">Total</TableHead>
+                <TableHead className="w-[40px]" />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {items.map((item, idx) => (
+                <Fragment key={idx}>
+                  <TableRow>
+                    <TableCell>
+                      <Select value={item.productId ? String(item.productId) : ""} onValueChange={(v) => updateItem(idx, "productId", v)}>
+                        <SelectTrigger className="h-8" data-testid={`select-product-${idx}`}>
+                          <SelectValue placeholder="Produto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>{p.code} - {p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input className="h-8" value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} data-testid={`input-desc-${idx}`} />
+                    </TableCell>
+                    <TableCell>
+                      <Input className="h-8" type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} data-testid={`input-qty-${idx}`} />
+                    </TableCell>
+                    <TableCell>
+                      <Input className="h-8" type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)} data-testid={`input-price-${idx}`} />
+                    </TableCell>
+                    <TableCell>
+                      <Select value={item.vatRate} onValueChange={(v) => updateItem(idx, "vatRate", v)}>
+                        <SelectTrigger className="h-8" data-testid={`select-vat-${idx}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VAT_RATES.map((r) => (
+                            <SelectItem key={r.value} value={r.value}>{r.value}%</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input className="h-8" type="number" value={item.discount} onChange={(e) => updateItem(idx, "discount", e.target.value)} />
+                    </TableCell>
+                    <TableCell className="text-right font-medium">{formatCurrency(calcItemTotal(item))}</TableCell>
+                    <TableCell>
+                      <Button size="icon" variant="ghost" onClick={() => removeItem(idx)} disabled={items.length === 1} data-testid={`button-remove-${idx}`}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {item.vatRate === "0" && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="pt-0 pb-2">
+                        <div className="flex items-center gap-2 pl-2">
+                          <Label className="text-xs text-amber-600 whitespace-nowrap">Motivo de isenção:</Label>
+                          <Select value={item.vatExemptionReason} onValueChange={(v) => updateItem(idx, "vatExemptionReason", v)}>
+                            <SelectTrigger className="h-7 text-xs" data-testid={`select-exemption-${idx}`}>
+                              <SelectValue placeholder="Selecionar motivo de isenção" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VAT_EXEMPTION_REASONS.map((r) => (
+                                <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <div className="flex justify-between items-start">
@@ -225,7 +275,7 @@ export default function InvoiceForm({ type, onSuccess }: InvoiceFormProps) {
 
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => onSuccess()} data-testid="button-cancel">Cancelar</Button>
-        <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !customerId} data-testid="button-save">
+        <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !customerId || hasExemptItems} data-testid="button-save">
           {mutation.isPending ? "A guardar..." : "Guardar Documento"}
         </Button>
       </div>

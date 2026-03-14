@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +15,10 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { Plus, Search, ShoppingCart, Trash2, X, Eye, Receipt } from "lucide-react";
+import { Plus, Search, ShoppingCart, Trash2, X, Eye, Receipt, Printer } from "lucide-react";
+import { VAT_RATES, VAT_EXEMPTION_REASONS, normalizeVatRate } from "@/lib/vat";
+import { printInvoiceDocument } from "@/lib/print-utils";
+import { EmailDialog } from "@/components/email-dialog";
 import type { Purchase, Supplier, Product, Receipt as ReceiptType } from "@shared/schema";
 
 const purchaseDocTypes = [
@@ -32,31 +35,51 @@ export default function Compras() {
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState("VFT");
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailData, setEmailData] = useState({ to: "", subject: "", body: "" });
+  const [isPrinting, setIsPrinting] = useState(false);
   const { toast } = useToast();
+
+  async function handlePrintPurchase() {
+    if (!selectedPurchase) return;
+    setIsPrinting(true);
+    try {
+      const res = await apiRequest("GET", `/api/purchases/${selectedPurchase.id}`);
+      const fullPurchase = await res.json();
+      printInvoiceDocument(fullPurchase as any, company || null);
+    } catch {
+      toast({ title: "Erro ao carregar documento para impressão", variant: "destructive" });
+    } finally {
+      setIsPrinting(false);
+    }
+  }
 
   const { data: purchases = [], isLoading } = useQuery<Purchase[]>({ queryKey: ["/api/purchases"] });
   const { data: suppliers = [] } = useQuery<Supplier[]>({ queryKey: ["/api/suppliers"] });
   const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/products"] });
   const { data: allReceipts = [] } = useQuery<ReceiptType[]>({ queryKey: ["/api/receipts"] });
+  const { data: company } = useQuery<any>({ queryKey: ["/api/company"] });
 
   const [supplierId, setSupplierId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState([
-    { productId: null as number | null, productCode: "", description: "", quantity: "1", unitPrice: "0", vatRate: "23" },
+    { productId: null as number | null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23", vatExemptionReason: "" },
   ]);
 
   const selectedSupplier = suppliers.find((s) => s.id === Number(supplierId));
 
   const calcItemTotal = (item: any) => {
-    return (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+    const base = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+    const disc = Number(item.discount) || 0;
+    return base * (1 - disc / 100);
   };
 
   const subtotal = items.reduce((sum, item) => sum + calcItemTotal(item), 0);
   const vatTotal = items.reduce((sum, item) => sum + calcItemTotal(item) * (Number(item.vatRate) / 100), 0);
   const total = subtotal + vatTotal;
 
-  const addItem = () => setItems([...items, { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", vatRate: "23" }]);
+  const addItem = () => setItems([...items, { productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23", vatExemptionReason: "" }]);
   const removeItem = (i: number) => { if (items.length > 1) setItems(items.filter((_, idx) => idx !== i)); };
   const updateItem = (index: number, field: string, value: string) => {
     const newItems = [...items];
@@ -67,21 +90,25 @@ export default function Compras() {
         newItems[index].productCode = product.code;
         newItems[index].description = product.name;
         newItems[index].unitPrice = product.purchasePrice || "0";
-        newItems[index].vatRate = product.vatRate || "23";
+        newItems[index].vatRate = normalizeVatRate(product.vatRate);
+        newItems[index].vatExemptionReason = product.vatExemptionReason || "";
         newItems[index].productId = product.id;
       }
+    }
+    if (field === "vatRate" && value !== "0") {
+      newItems[index].vatExemptionReason = "";
     }
     setItems(newItems);
   };
 
   const resetForm = () => {
     setSupplierId(""); setNotes("");
-    setItems([{ productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", vatRate: "23" }]);
+    setItems([{ productId: null, productCode: "", description: "", quantity: "1", unitPrice: "0", discount: "0", vatRate: "23", vatExemptionReason: "" }]);
   };
 
   const mutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/purchases", {
+      const res = await apiRequest("POST", "/api/purchases", {
         type: formType,
         date: new Date(date),
         supplierId: Number(supplierId) || null,
@@ -96,17 +123,36 @@ export default function Compras() {
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          discount: item.discount || "0",
           vatRate: item.vatRate,
+          vatExemptionReason: item.vatRate === "0" ? item.vatExemptionReason : null,
           total: calcItemTotal(item).toFixed(2),
         })),
       });
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (purchase) => {
       setShowForm(false);
       queryClient.invalidateQueries({ queryKey: ["/api/purchases"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/suppliers"] });
       toast({ title: "Documento de compra criado com sucesso" });
       resetForm();
+      if (purchase) {
+        const allSuppliers = queryClient.getQueryData<any[]>(["/api/suppliers"]) || [];
+        const supplier = allSuppliers.find((s: any) => s.id === purchase.supplierId);
+        const docLabel: Record<string, string> = { VFT: "V/Fatura", VFR: "V/Fatura-Recibo", VNC: "V/Nota de Crédito", VND: "V/Nota de Débito" };
+        const label = docLabel[purchase.type] || "Documento";
+        setEmailData({
+          to: supplier?.email || "",
+          subject: `${label} ${purchase.number} - Confirmação de Receção`,
+          body: `Exmo(a) Sr(a),\n\nVimos por este meio confirmar a receção da ${label} n.º ${purchase.number}, no valor de ${Number(purchase.total).toFixed(2)} €.\n\nFico ao dispor para qualquer esclarecimento.\n\nCom os melhores cumprimentos,\n${company?.name || ""}`,
+        });
+        setEmailOpen(true);
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao registar compra", description: error.message, variant: "destructive" });
     },
   });
 
@@ -187,29 +233,63 @@ export default function Compras() {
                         <TableRow>
                           <TableHead>Produto</TableHead>
                           <TableHead>Descrição</TableHead>
-                          <TableHead className="w-[80px]">Qtd</TableHead>
-                          <TableHead className="w-[100px]">Preço</TableHead>
-                          <TableHead className="w-[70px]">IVA %</TableHead>
-                          <TableHead className="w-[100px] text-right">Total</TableHead>
+                          <TableHead className="w-[70px]">Qtd</TableHead>
+                          <TableHead className="w-[90px]">Preço</TableHead>
+                          <TableHead className="w-[70px]">Desc. %</TableHead>
+                          <TableHead className="w-[100px]">IVA</TableHead>
+                          <TableHead className="w-[90px] text-right">Total</TableHead>
                           <TableHead className="w-[40px]" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {items.map((item, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell>
-                              <Select value={item.productId ? String(item.productId) : ""} onValueChange={(v) => updateItem(idx, "productId", v)}>
-                                <SelectTrigger className="h-8"><SelectValue placeholder="Produto" /></SelectTrigger>
-                                <SelectContent>{products.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.code}</SelectItem>)}</SelectContent>
-                              </Select>
-                            </TableCell>
-                            <TableCell><Input className="h-8" value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} /></TableCell>
-                            <TableCell><Input className="h-8" type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} /></TableCell>
-                            <TableCell><Input className="h-8" type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)} /></TableCell>
-                            <TableCell><Input className="h-8" type="number" value={item.vatRate} onChange={(e) => updateItem(idx, "vatRate", e.target.value)} /></TableCell>
-                            <TableCell className="text-right font-medium">{formatCurrency(calcItemTotal(item))}</TableCell>
-                            <TableCell><Button size="icon" variant="ghost" onClick={() => removeItem(idx)} disabled={items.length === 1}><Trash2 className="w-3 h-3" /></Button></TableCell>
-                          </TableRow>
+                          <Fragment key={idx}>
+                            <TableRow>
+                              <TableCell>
+                                <Select value={item.productId ? String(item.productId) : ""} onValueChange={(v) => updateItem(idx, "productId", v)}>
+                                  <SelectTrigger className="h-8"><SelectValue placeholder="Produto" /></SelectTrigger>
+                                  <SelectContent>{products.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.code}</SelectItem>)}</SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell><Input className="h-8" value={item.description} onChange={(e) => updateItem(idx, "description", e.target.value)} /></TableCell>
+                              <TableCell><Input className="h-8" type="number" value={item.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value)} /></TableCell>
+                              <TableCell><Input className="h-8" type="number" step="0.01" value={item.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value)} /></TableCell>
+                              <TableCell><Input className="h-8" type="number" min="0" max="100" step="0.01" value={(item as any).discount || "0"} onChange={(e) => updateItem(idx, "discount", e.target.value)} placeholder="0" /></TableCell>
+                              <TableCell>
+                                <Select value={item.vatRate} onValueChange={(v) => updateItem(idx, "vatRate", v)}>
+                                  <SelectTrigger className="h-8" data-testid={`select-purchase-vat-${idx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {VAT_RATES.map((r) => (
+                                      <SelectItem key={r.value} value={r.value}>{r.value}%</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+                              <TableCell className="text-right font-medium">{formatCurrency(calcItemTotal(item))}</TableCell>
+                              <TableCell><Button size="icon" variant="ghost" onClick={() => removeItem(idx)} disabled={items.length === 1}><Trash2 className="w-3 h-3" /></Button></TableCell>
+                            </TableRow>
+                            {item.vatRate === "0" && (
+                              <TableRow>
+                                <TableCell colSpan={8} className="pt-0 pb-2">
+                                  <div className="flex items-center gap-2 pl-2">
+                                    <Label className="text-xs text-amber-600 whitespace-nowrap">Motivo de isenção:</Label>
+                                    <Select value={item.vatExemptionReason} onValueChange={(v) => updateItem(idx, "vatExemptionReason", v)}>
+                                      <SelectTrigger className="h-7 text-xs" data-testid={`select-purchase-exemption-${idx}`}>
+                                        <SelectValue placeholder="Selecionar motivo de isenção" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {VAT_EXEMPTION_REASONS.map((r) => (
+                                          <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </Fragment>
                         ))}
                       </TableBody>
                     </Table>
@@ -226,7 +306,7 @@ export default function Compras() {
 
                   <div className="flex justify-end gap-2">
                     <Button variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Button>
-                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !supplierId} data-testid="button-save-purchase">
+                    <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !supplierId || items.some(i => i.vatRate === "0" && !i.vatExemptionReason)} data-testid="button-save-purchase">
                       {mutation.isPending ? "A guardar..." : "Registar Documento"}
                     </Button>
                   </div>
@@ -326,9 +406,14 @@ export default function Compras() {
                     <CardTitle className="text-base" data-testid="text-purchase-number">{selectedPurchase.number}</CardTitle>
                     <p className="text-sm text-muted-foreground">{purchaseDocTypes.find(d => d.value === (selectedPurchase as any).type)?.label || "V/Fatura"}</p>
                   </div>
-                  <Button size="icon" variant="ghost" onClick={() => setSelectedPurchase(null)} data-testid="button-close-purchase-detail">
-                    <X className="w-4 h-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button size="icon" variant="ghost" onClick={handlePrintPurchase} disabled={isPrinting} data-testid="button-print-purchase" title="Imprimir documento">
+                      <Printer className="w-4 h-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => setSelectedPurchase(null)} data-testid="button-close-purchase-detail">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-auto space-y-4">
                   <div className="bg-accent/30 rounded-md p-4 space-y-2">
@@ -404,12 +489,27 @@ export default function Compras() {
                       <p className="text-xs text-muted-foreground italic">Sem pagamentos registados</p>
                     )}
                   </div>
+
+                  <div className="pt-2">
+                    <Button variant="outline" size="sm" className="w-full gap-2" onClick={handlePrintPurchase} disabled={isPrinting} data-testid="button-print-purchase-full">
+                      <Printer className="w-4 h-4" />
+                      {isPrinting ? "A carregar..." : "Imprimir Documento A4"}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </div>
           )}
         </div>
       </div>
+
+      <EmailDialog
+        open={emailOpen}
+        onClose={() => setEmailOpen(false)}
+        defaultTo={emailData.to}
+        defaultSubject={emailData.subject}
+        defaultBody={emailData.body}
+      />
     </div>
   );
 }
